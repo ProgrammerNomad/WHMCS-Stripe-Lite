@@ -251,14 +251,14 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 ## Changelog
 
-### v2.0.2 (November 2025)
+### v1.0.2 (November 2025)
 
 - Fixed gateway config field types (dropdown/text/password) so WHMCS renders inputs correctly
 - Updated callback redirect path to use `/modules/gateways/callback/`
 - Replaced custom `logTransaction()` with `_sl_log()` helper to avoid WHMCS function redeclaration errors
 - Confirmed Composer autoload path reference and documentation align with module folder structure
 
-### v2.0.0 (November 2025)
+### v1.0.1 (November 2025)
 
 - Migrated to the official `stripe/stripe-php` SDK for all API operations
 - Swapped raw SQL and `$_SESSION` usage for WHMCS Capsule ORM persistence

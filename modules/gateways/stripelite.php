@@ -1,7 +1,7 @@
 <?php
 /**
  * modules/gateways/stripelite.php
- * WHMCS Stripe Lite Gateway Module (v2.0.1)
+ * WHMCS Stripe Lite Gateway Module (v1.0.2)
  *
  * Place composer vendor inside: modules/gateways/stripelite/vendor/
  */
