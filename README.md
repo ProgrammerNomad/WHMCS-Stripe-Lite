@@ -11,7 +11,7 @@
 
 ## Overview
 
-**WHMCS Stripe Lite** is a simplified and trust-oriented alternative to the official WHMCS Stripe module. Rather than collecting card details on your site, Stripe Lite redirects customers to Stripe Checkout — a Stripe-hosted, PCI-compliant payment page — increasing security and customer trust while preserving WHMCS automation.
+**WHMCS Stripe Lite** is a simplified and trust-oriented alternative to the official WHMCS Stripe module. Rather than collecting card details on your site, Stripe Lite redirects customers to Stripe Checkout - a Stripe-hosted, PCI-compliant payment page - increasing security and customer trust while preserving WHMCS automation.
 
 This reduces friction for customers who are hesitant to enter card details on new or unfamiliar sites and helps lower cart abandonment.
 
@@ -60,7 +60,7 @@ git clone https://github.com/ProgrammerNomad/WHMCS-Stripe-Lite.git
 | Option | Description |
 | --- | --- |
 | Test Mode | Use Stripe test API keys for sandbox testing |
-| Webhook Support | Recommended — verifies payments and updates WHMCS invoices automatically |
+| Webhook Support | Recommended - verifies payments and updates WHMCS invoices automatically |
 | Currency Support | Works with any currency your Stripe account supports |
 | Redirect URL | Payments go to [Stripe Checkout](https://checkout.stripe.com/) (Stripe-hosted) |
 
@@ -88,7 +88,7 @@ git clone https://github.com/ProgrammerNomad/WHMCS-Stripe-Lite.git
 
 ## Security
 
-- No card data is collected or stored on your server — all card entry happens on Stripe’s domain.
+- No card data is collected or stored on your server - all card entry happens on Stripe’s domain.
 - Stripe handles PCI compliance for the hosted Checkout flow.
 - Webhook signature verification is used to validate incoming Stripe notifications.
 
@@ -121,7 +121,7 @@ Use the webhook signing secret from the Stripe Dashboard to configure the module
 
 | Version | Notes |
 | --- | --- |
-| v1.0.0 | Initial release — core Stripe Checkout redirect functionality |
+| v1.0.0 | Initial release - core Stripe Checkout redirect functionality |
 
 ---
 
@@ -132,14 +132,14 @@ Contributions are welcome. Please open an issue for bugs or feature requests and
 - [Open an issue](https://github.com/ProgrammerNomad/WHMCS-Stripe-Lite/issues)
 - [Submit a Pull Request](https://github.com/ProgrammerNomad/WHMCS-Stripe-Lite/pulls)
 
-If you find this module helpful, a ⭐ on the repository is appreciated — it helps fund future updates.
+If you find this module helpful, a ⭐ on the repository is appreciated - it helps fund future updates.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License — see the `LICENSE` file for details.
+This project is licensed under the MIT License - see the `LICENSE` file for details.
 
 ---
 
-Created by ProgrammerNomad — for developers who value trust, transparency, and simplicity in online payments 💙
+Created by NomadProgrammer - for developers who value trust, transparency, and simplicity in online payments 💙
