@@ -129,7 +129,7 @@ function stripelite_link($params)
 
     // Build URLs
     $successUrl = $systemUrl . '/modules/gateways/callback/stripelite.php?action=return&invoice=' . $invoiceId . '&session_id={CHECKOUT_SESSION_ID}';
-    $cancelUrl = $systemUrl . '/cart.php?action=view';
+    $cancelUrl = $systemUrl . '/viewinvoice.php?id=' . $invoiceId;
 
     // Create idempotency key
     $idempotencyKey = 'whmcs_invoice_' . $invoiceId . '_' . time();
