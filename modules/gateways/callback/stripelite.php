@@ -7,6 +7,8 @@
 if (!defined('WHMCS')) {
     // Bootstrap WHMCS environment
     require_once __DIR__ . '/../../../init.php';
+    require_once __DIR__ . '/../../../includes/gatewayfunctions.php';
+    require_once __DIR__ . '/../../../includes/invoicefunctions.php';
 }
 
 use WHMCS\Database\Capsule;
@@ -15,20 +17,6 @@ use WHMCS\Database\Capsule;
 $vendorAutoload = __DIR__ . '/../stripelite/vendor/autoload.php';
 if (file_exists($vendorAutoload)) {
     require_once $vendorAutoload;
-}
-
-/**
- * Minimal log helper
- */
-function _sl_log($action, $data)
-{
-    $log_dir = defined('ROOTDIR') ? ROOTDIR . '/logs' : __DIR__ . '/../../logs';
-    if (!is_dir($log_dir)) {
-        @mkdir($log_dir, 0755, true);
-    }
-    $file = $log_dir . '/stripe_lite_callback.log';
-    $msg = '[' . date('Y-m-d H:i:s') . "] [$action] " . substr($data, 0, 1000) . PHP_EOL;
-    @file_put_contents($file, $msg, FILE_APPEND);
 }
 
 /**
