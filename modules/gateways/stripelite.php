@@ -149,21 +149,32 @@ function stripelite_link($params)
         return $value !== null && $value !== '';
     });
 
-    $customerDetails = [
-        'name'  => $clientName,
-        'email' => $clientEmail,
-    ];
-
-    if (!empty($addressPayload)) {
-        $customerDetails['address'] = $addressPayload;
-    }
-
-    if (!empty($clientDetails['phonenumber'])) {
-        $customerDetails['phone'] = $clientDetails['phonenumber'];
-    }
-
     // Initialize Stripe
     \Stripe\Stripe::setApiKey($secretKey);
+
+    $customerPayload = [
+        'email'    => $clientEmail,
+        'name'     => $clientName,
+        'address'  => $addressPayload,
+        'metadata' => [
+            'whmcs_invoice_id' => (string) $invoiceId,
+            'whmcs_client_id'  => $clientId !== null ? (string) $clientId : '',
+            'whmcs_site'       => $systemUrl,
+        ],
+    ];
+
+    $clientPhoneRaw = $clientDetails['phonenumber'] ?? '';
+    $clientPhone = trim(preg_replace('/[^0-9\+\-(). ]+/', '', (string) $clientPhoneRaw));
+    if ($clientPhone !== '') {
+        $customerPayload['phone'] = $clientPhone;
+    }
+
+    try {
+        $stripeCustomer = \Stripe\Customer::create($customerPayload);
+    } catch (\Stripe\Exception\ApiErrorException $e) {
+        _sl_log('stripelite', $e->getMessage(), 'Stripe Customer Error');
+        return renderError('Unable to create Stripe customer. Please verify billing details and try again.');
+    }
 
     // Build URLs
     $successUrl = $systemUrl . '/modules/gateways/callback/stripelite.php?action=return&invoice=' . $invoiceId . '&session_id={CHECKOUT_SESSION_ID}';
@@ -187,20 +198,25 @@ function stripelite_link($params)
                 ],
                 'quantity' => 1,
             ]],
-            'customer_email' => $clientEmail,
-            'customer_details' => $customerDetails,
+            'customer' => $stripeCustomer->id,
             'billing_address_collection' => 'required',
             'metadata' => [
                 'invoice_id' => (string)$invoiceId,
                 'client_id' => (string)$clientId,
                 'whmcs_site' => $systemUrl,
+                'customer_id' => $stripeCustomer->id,
             ],
         ], [
             'idempotency_key' => $idempotencyKey,
         ]);
     } catch (\Stripe\Exception\ApiErrorException $e) {
         _sl_log('stripelite', $e->getMessage(), 'Stripe API Error');
-        return renderError('Payment gateway error. Please try again later.');
+        $msg = 'Payment gateway error. Please try again later.';
+        if ($params['testmode'] ?? $mode === 'test') {
+            $devHint = htmlspecialchars($e->getMessage(), ENT_QUOTES, 'UTF-8');
+            $msg .= '<br><small style="color:#555">Stripe says: ' . $devHint . '</small>';
+        }
+        return renderError($msg);
     } catch (Exception $e) {
         _sl_log('stripelite', $e->getMessage(), 'General Error');
         return renderError('Unexpected error. Please contact support.');
