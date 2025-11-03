@@ -169,9 +169,12 @@ function stripelite_link($params)
     // Store session in DB
     _storeStripeSession($invoiceId, $session->id, $amount, $currency);
 
-    // Redirect to Stripe Checkout
-    header('Location: ' . $session->url, true, 303);
-    exit;
+    // Return a button so the client has to intentionally begin the Stripe checkout
+    return '<div style="text-align:center; margin: 15px 0;">'
+        . '<a class="btn btn-primary" href="' . htmlspecialchars($session->url, ENT_QUOTES, 'UTF-8') . '" rel="noopener">'
+        . 'Pay with Stripe'
+        . '</a>'
+        . '</div>';
 }
 
 /**
