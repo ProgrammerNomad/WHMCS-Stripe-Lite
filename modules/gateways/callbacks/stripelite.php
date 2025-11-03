@@ -4,8 +4,9 @@
  * 
  * Handles payment return from Stripe Checkout
  * Processes webhook events as fallback payment confirmation
+ * Uses official Stripe PHP SDK for webhook verification
  * 
- * @version 1.0.0
+ * @version 2.0.0
  * @author ProgrammerNomad
  */
 
@@ -37,7 +38,7 @@ if ($action == 'return') {
 function handleStripeReturn()
 {
     $invoice_id = isset($_GET['invoice']) ? (int)$_GET['invoice'] : 0;
-    $session_id = isset($_GET['session_id']) ? sanitize($_GET['session_id']) : '';
+    $session_id = isset($_GET['session_id']) ? preg_replace('/[^a-zA-Z0-9_\-]/', '', $_GET['session_id']) : '';
     
     if (!$invoice_id || !$session_id) {
         logStripeTransaction('', 'Invalid return parameters');
@@ -116,9 +117,19 @@ function handleStripeReturn()
 /**
  * Handle Stripe Webhook Events
  * Acts as fallback in case customer doesn't return to WHMCS after payment
+ * Uses Stripe SDK for webhook signature verification
  */
 function handleStripeWebhook()
 {
+    // Load Stripe SDK
+    $stripeLibPath = __DIR__ . '/../stripelite/vendor/autoload.php';
+    if (!file_exists($stripeLibPath)) {
+        logStripeTransaction('', 'Webhook: Stripe SDK not installed');
+        http_response_code(500);
+        die('SDK not available');
+    }
+    require_once $stripeLibPath;
+    
     // Get gateway configuration
     $gatewayParams = getGatewayVariables('stripelite');
     if (!$gatewayParams['type']) {
@@ -135,39 +146,45 @@ function handleStripeWebhook()
         die('Webhook secret not configured');
     }
     
-    // Get raw request body
+    // Get raw request body and signature header
     $input = @file_get_contents('php://input');
-    $event = null;
+    $sig_header = $_SERVER['HTTP_STRIPE_SIGNATURE'] ?? '';
+    
+    if (empty($input) || empty($sig_header)) {
+        logStripeTransaction('', 'Webhook: Missing body or signature header');
+        http_response_code(400);
+        die('Invalid request');
+    }
     
     try {
-        $event = json_decode($input);
-    } catch (Exception $e) {
-        logStripeTransaction('', 'Webhook: Invalid JSON');
-        http_response_code(400);
-        die('Invalid JSON');
-    }
-    
-    // Verify webhook signature
-    $sig_header = $_SERVER['HTTP_STRIPE_SIGNATURE'] ?? '';
-    if (!verifyStripeSignature($input, $sig_header, $webhook_secret)) {
-        logStripeTransaction('', 'Webhook: Invalid signature');
+        // Verify webhook signature using Stripe SDK
+        $event = \Stripe\Webhook::constructEvent($input, $sig_header, $webhook_secret);
+        
+        // Handle specific event types
+        switch ($event->type) {
+            case 'checkout.session.completed':
+                handleCheckoutSessionCompleted($event->data->object, $gatewayParams);
+                break;
+            case 'payment_intent.succeeded':
+                handlePaymentIntentSucceeded($event->data->object, $gatewayParams);
+                break;
+            default:
+                // Acknowledge other event types
+                logStripeTransaction('', 'Webhook: Unhandled event type ' . $event->type);
+                break;
+        }
+        
+        http_response_code(200);
+        echo json_encode(['success' => true]);
+        
+    } catch (\Stripe\Exception\SignatureVerificationException $e) {
+        logStripeTransaction('', 'Webhook: Invalid signature - ' . $e->getMessage());
         http_response_code(403);
         die('Invalid signature');
-    }
-    
-    // Handle specific events
-    if ($event->type == 'checkout.session.completed') {
-        handleCheckoutSessionCompleted($event->data->object, $gatewayParams);
-        http_response_code(200);
-        echo json_encode(['success' => true]);
-    } elseif ($event->type == 'payment_intent.succeeded') {
-        handlePaymentIntentSucceeded($event->data->object, $gatewayParams);
-        http_response_code(200);
-        echo json_encode(['success' => true]);
-    } else {
-        // Acknowledge other event types
-        http_response_code(200);
-        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        logStripeTransaction('', 'Webhook: Error processing event - ' . $e->getMessage());
+        http_response_code(400);
+        die('Error processing webhook');
     }
     
     die();
@@ -266,47 +283,6 @@ function handlePaymentIntentSucceeded($intent, $gatewayParams)
 }
 
 /**
- * Verify Stripe webhook signature
- */
-function verifyStripeSignature($payload, $sig_header, $webhook_secret)
-{
-    if (empty($sig_header)) {
-        return false;
-    }
-    
-    // Parse signature header
-    $parts = explode(',', $sig_header);
-    $timestamp = null;
-    $signature = null;
-    
-    foreach ($parts as $part) {
-        $kv = explode('=', $part, 2);
-        if ($kv[0] === 't') {
-            $timestamp = $kv[1];
-        } elseif ($kv[0] === 'v1') {
-            $signature = $kv[1];
-        }
-    }
-    
-    if (!$timestamp || !$signature) {
-        return false;
-    }
-    
-    // Prevent replay attacks - check timestamp is recent (within 5 minutes)
-    $current_time = time();
-    if ($current_time - $timestamp > 300) {
-        return false;
-    }
-    
-    // Calculate expected signature
-    $signed_content = $timestamp . '.' . $payload;
-    $expected_sig = hash_hmac('sha256', $signed_content, $webhook_secret);
-    
-    // Compare signatures (timing-safe comparison)
-    return hash_equals($expected_sig, $signature);
-}
-
-/**
  * Log Stripe transactions for debugging
  */
 function logStripeTransaction($transaction_id, $message)
@@ -322,14 +298,6 @@ function logStripeTransaction($transaction_id, $message)
     $log_message = "[{$timestamp}] [TxnID: {$transaction_id}] {$message}\n";
     
     @file_put_contents($log_file, $log_message, FILE_APPEND);
-}
-
-/**
- * Sanitize input
- */
-function sanitize($input)
-{
-    return preg_replace('/[^a-zA-Z0-9_\-]/', '', $input);
 }
 
 ?>

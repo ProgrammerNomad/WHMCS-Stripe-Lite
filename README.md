@@ -1,4 +1,4 @@
-# 🟦 WHMCS Stripe Lite
+# WHMCS Stripe Lite
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![WHMCS](https://img.shields.io/badge/WHMCS-v8.13-success)](https://www.whmcs.com/)
@@ -48,6 +48,91 @@ Copy the module files to your WHMCS installation:
 
 - `stripelite.php` → `/modules/gateways/stripelite.php`
 - `callbacks/stripelite.php` → `/modules/gateways/callbacks/stripelite.php`
+
+### Step 3: Install Stripe PHP SDK
+
+**The Stripe SDK is included in the `stripelite/` directory.**
+
+Ensure the following directory structure exists:
+
+```
+/modules/gateways/
+├── stripelite.php
+├── callbacks/
+│   └── stripelite.php
+└── stripelite/
+    ├── vendor/
+    │   ├── autoload.php (← SDK autoloader)
+    │   └── stripe/
+    ├── composer.json
+    └── composer.lock
+```
+
+If you need to reinstall the SDK:
+
+```bash
+cd /modules/gateways/stripelite
+composer install
+```
+
+This will download the Stripe SDK into the `vendor/` directory.
+
+### Step 4: Create Database Table
+
+The module automatically creates the `mod_stripelite_sessions` table on first use.
+
+To manually create it, run this SQL in your WHMCS database:
+
+```sql
+CREATE TABLE IF NOT EXISTS `mod_stripelite_sessions` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  `invoiceid` int unsigned NOT NULL,
+  `session_id` varchar(255) NOT NULL UNIQUE,
+  `amount` decimal(10, 2) NOT NULL,
+  `currency` varchar(8) NOT NULL,
+  `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
+  INDEX `invoiceid` (`invoiceid`),
+  INDEX `session_id` (`session_id`)
+);
+```
+
+### Step 5: Get Stripe API Keys & Webhook Secret
+
+1. Log in to [Stripe Dashboard](https://dashboard.stripe.com)
+2. Go to **Developers** → **API Keys**
+3. Copy your keys:
+   - **Test Mode**: `pk_test_...` and `sk_test_...`
+   - **Production Mode**: `pk_live_...` and `sk_live_...`
+
+4. Go to **Developers** → **Webhooks**
+5. Click **Add endpoint** and enter:
+   - **URL**: `https://yourdomain.com/modules/gateways/callbacks/stripelite.php`
+   - **Events**: Select `checkout.session.completed` and `payment_intent.succeeded`
+6. Copy the **Signing Secret** (`whsec_...`)
+
+### Step 6: Configure in WHMCS Admin
+
+1. Go to **Setup** → **Payment Gateways**
+2. Find **Stripe Lite** and toggle **Enabled**
+3. Enter your API keys:
+   - Test Publishable Key
+   - Test Secret Key
+   - Live Publishable Key (optional for now)
+   - Live Secret Key (optional for now)
+   - Webhook Signing Secret
+
+4. Set **Mode** to "Test Mode (Sandbox)" for testing
+5. Click **Save Changes**
+
+### Step 7: Verify Installation
+
+Visit your WHMCS site and run the verification script:
+
+```
+/modules/gateways/stripelite_check.php
+```
+
+This will confirm all files and SDK are properly installed.
 
 ### Step 3: Activate in WHMCS Admin
 
