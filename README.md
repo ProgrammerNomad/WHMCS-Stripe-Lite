@@ -63,7 +63,7 @@ Ensure the following directory structure exists:
 └── stripelite/
     ├── vendor/
     │   ├── autoload.php (← SDK autoloader)
-    │   └── stripe/
+    │   └── stripe-php/
     ├── composer.json
     └── composer.lock
 ```
