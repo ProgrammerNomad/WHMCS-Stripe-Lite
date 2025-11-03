@@ -32,38 +32,53 @@ function stripelite_config()
 {
     return [
         'FriendlyName' => [
-            'Type' => 'System',
+            'Type'  => 'system',
             'Value' => 'Stripe Lite',
         ],
         'mode' => [
             'FriendlyName' => 'Mode',
-            'Type' => 'Dropdown',
-            'Options' => [
+            'Type'         => 'dropdown',
+            'Options'      => [
                 'test' => 'Test Mode (Sandbox)',
                 'live' => 'Production Mode (Live)',
             ],
-            'Default' => 'test',
+            'Default'      => 'test',
+            'Description'  => 'Choose Test for sandbox or Live for production.',
         ],
         'test_publishable_key' => [
             'FriendlyName' => 'Test Publishable Key',
-            'Type' => 'Text',
+            'Type'         => 'text',
+            'Size'         => '60',
+            'Default'      => '',
+            'Description'  => 'Your Stripe test publishable key (pk_test_...)',
         ],
         'test_secret_key' => [
             'FriendlyName' => 'Test Secret Key',
-            'Type' => 'Password',
+            'Type'         => 'password',
+            'Size'         => '60',
+            'Default'      => '',
+            'Description'  => 'Your Stripe test secret key (sk_test_...). Keep secret.',
         ],
         'live_publishable_key' => [
             'FriendlyName' => 'Production Publishable Key',
-            'Type' => 'Text',
+            'Type'         => 'text',
+            'Size'         => '60',
+            'Default'      => '',
+            'Description'  => 'Your Stripe live publishable key (pk_live_...)',
         ],
         'live_secret_key' => [
             'FriendlyName' => 'Production Secret Key',
-            'Type' => 'Password',
+            'Type'         => 'password',
+            'Size'         => '60',
+            'Default'      => '',
+            'Description'  => 'Your Stripe live secret key (sk_live_...). Keep secret.',
         ],
         'webhook_secret' => [
             'FriendlyName' => 'Webhook Signing Secret',
-            'Type' => 'Password',
-            'Description' => 'Optional: Webhook signing secret from Stripe Dashboard (whsec_...)',
+            'Type'         => 'password',
+            'Size'         => '80',
+            'Default'      => '',
+            'Description'  => 'Optional: webhook signing secret from Stripe (whsec_...).',
         ],
     ];
 }
