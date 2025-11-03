@@ -109,7 +109,7 @@ function stripelite_link($params)
     \Stripe\Stripe::setApiKey($secretKey);
 
     // Build URLs
-    $successUrl = $systemUrl . '/modules/gateways/callbacks/stripelite.php?action=return&invoice=' . $invoiceId . '&session_id={CHECKOUT_SESSION_ID}';
+    $successUrl = $systemUrl . '/modules/gateways/callback/stripelite.php?action=return&invoice=' . $invoiceId . '&session_id={CHECKOUT_SESSION_ID}';
     $cancelUrl = $systemUrl . '/cart.php?action=view';
 
     // Create idempotency key
@@ -140,10 +140,10 @@ function stripelite_link($params)
             'idempotency_key' => $idempotencyKey,
         ]);
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        logTransaction('stripelite', $e->getMessage(), 'Stripe API Error');
+        _sl_log('stripelite', $e->getMessage(), 'Stripe API Error');
         return renderError('Payment gateway error. Please try again later.');
     } catch (Exception $e) {
-        logTransaction('stripelite', $e->getMessage(), 'General Error');
+        _sl_log('stripelite', $e->getMessage(), 'General Error');
         return renderError('Unexpected error. Please contact support.');
     }
 
@@ -173,30 +173,30 @@ function stripelite_handleReturn($invoice_id, $session_id, $mode, $secret_key)
     try {
         $session = \Stripe\Checkout\Session::retrieve($session_id);
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        logTransaction('stripelite', $e->getMessage(), 'Error retrieving session');
+        _sl_log('stripelite', $e->getMessage(), 'Error retrieving session');
         return ['success' => false, 'message' => 'Unable to verify payment session'];
     }
 
     if (($session->payment_status ?? '') !== 'paid') {
-        logTransaction('stripelite', json_encode($session), 'Session not paid');
+        _sl_log('stripelite', json_encode($session), 'Session not paid');
         return ['success' => false, 'message' => 'Payment not completed'];
     }
 
     $paymentIntentId = $session->payment_intent ?? null;
     if (!$paymentIntentId) {
-        logTransaction('stripelite', json_encode($session), 'No payment intent');
+        _sl_log('stripelite', json_encode($session), 'No payment intent');
         return ['success' => false, 'message' => 'No payment intent found'];
     }
 
     try {
         $intent = \Stripe\PaymentIntent::retrieve($paymentIntentId);
     } catch (\Stripe\Exception\ApiErrorException $e) {
-        logTransaction('stripelite', $e->getMessage(), 'Error retrieving payment intent');
+        _sl_log('stripelite', $e->getMessage(), 'Error retrieving payment intent');
         return ['success' => false, 'message' => 'Unable to verify payment intent'];
     }
 
     if (($intent->status ?? '') !== 'succeeded') {
-        logTransaction('stripelite', json_encode($intent), 'Payment intent not succeeded');
+        _sl_log('stripelite', json_encode($intent), 'Payment intent not succeeded');
         return ['success' => false, 'message' => 'Payment did not succeed'];
     }
 
@@ -231,7 +231,7 @@ function _createSessionTable()
             });
         }
     } catch (Exception $e) {
-        logTransaction('stripelite', $e->getMessage(), 'Error creating sessions table');
+        _sl_log('stripelite', $e->getMessage(), 'Error creating sessions table');
     }
 }
 
@@ -247,7 +247,7 @@ function _storeStripeSession($invoice_id, $session_id, $amount, $currency)
             'created_at' => date('Y-m-d H:i:s'),
         ]);
     } catch (Exception $e) {
-        logTransaction('stripelite', $e->getMessage(), 'Error storing session');
+        _sl_log('stripelite', $e->getMessage(), 'Error storing session');
     }
 }
 
@@ -264,7 +264,7 @@ function _transactionExists($invoice_id, $transaction_id)
             ->exists();
         return $exists;
     } catch (Exception $e) {
-        logTransaction('stripelite', $e->getMessage(), 'Error checking transaction exists');
+        _sl_log('stripelite', $e->getMessage(), 'Error checking transaction exists');
         return false;
     }
 }
@@ -278,7 +278,7 @@ function _invoiceAlreadyPaid($invoice_id)
         $invoice = Capsule::table('tblinvoices')->where('id', $invoice_id)->first();
         return ($invoice && ($invoice->status === 'Paid'));
     } catch (Exception $e) {
-        logTransaction('stripelite', $e->getMessage(), 'Error checking invoice status');
+        _sl_log('stripelite', $e->getMessage(), 'Error checking invoice status');
         return false;
     }
 }
@@ -294,16 +294,18 @@ function renderError($message)
 }
 
 /**
- * Log wrapper (uses WHMCS logTransaction as well)
+ * Log helper - uses WHMCS built-in logTransaction()
+ * Falls back to file logging if WHMCS logger unavailable
  */
-function logTransaction($gateway, $data, $action = '')
+function _sl_log($gateway, $data, $action = '')
 {
-    // Use WHMCS logTransaction if available
+    // Try WHMCS logTransaction first
     if (function_exists('logTransaction')) {
         try {
-            \logTransaction($gateway, $data, $action);
+            logTransaction($gateway, $data, $action);
+            return; // Success, stop here
         } catch (Exception $e) {
-            // fallback to file
+            // Fall through to file logging
         }
     }
 
@@ -318,7 +320,7 @@ function logTransaction($gateway, $data, $action = '')
         $entry = "[{$timestamp}] [{$action}] " . substr($data, 0, 1000) . PHP_EOL;
         @file_put_contents($file, $entry, FILE_APPEND);
     } catch (Exception $e) {
-        // silent
+        // silent failure
     }
 }
 
