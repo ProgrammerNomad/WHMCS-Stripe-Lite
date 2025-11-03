@@ -61,7 +61,7 @@ function stripelite_config()
         ],
         'test_secret_key' => [
             'FriendlyName' => 'Test Secret Key',
-            'Type'         => 'password',
+            'Type'         => 'text',
             'Size'         => '60',
             'Default'      => '',
             'Description'  => 'Your Stripe test secret key (sk_test_...). Keep secret.',
@@ -75,14 +75,14 @@ function stripelite_config()
         ],
         'live_secret_key' => [
             'FriendlyName' => 'Production Secret Key',
-            'Type'         => 'password',
+            'Type'         => 'text',
             'Size'         => '60',
             'Default'      => '',
             'Description'  => 'Your Stripe live secret key (sk_live_...). Keep secret.',
         ],
         'webhook_secret' => [
             'FriendlyName' => 'Webhook Signing Secret',
-            'Type'         => 'password',
+            'Type'         => 'text',
             'Size'         => '80',
             'Default'      => '',
             'Description'  => 'Optional: webhook signing secret from Stripe (whsec_...). <div class="alert alert-info top-margin-5 bottom-margin-5">Webhook Endpoint URL: <code>' . htmlspecialchars($webhookEndpoint, ENT_QUOTES, 'UTF-8') . '</code></div>',
@@ -235,7 +235,8 @@ function stripelite_link($params)
 
 /**
  * Manual payment verification used by callbacks file
- * Returns array with success, transaction_id, amount, currency, invoice_id
+ * Returns array with success, transaction_id, amount, currency, fee, invoice_id
+ * Fee is extracted from Stripe's charge object (Stripe processing fee)
  */
 function stripelite_handleReturn($invoice_id, $session_id, $mode, $secret_key)
 {
@@ -280,12 +281,46 @@ function stripelite_handleReturn($invoice_id, $session_id, $mode, $secret_key)
 
     $stripeAmount = $intent->amount_received ?? $intent->amount ?? 0;
     $stripeCurrency = strtoupper($intent->currency ?? '');
+    
+    // Extract fee from Stripe charge object
+    $stripeFee = 0;
+    if ($intent->charges && $intent->charges->data && is_array($intent->charges->data) && count($intent->charges->data) > 0) {
+        $charge = $intent->charges->data[0];
+        
+        // Method 1: Try to get fee from BalanceTransaction (most reliable)
+        if (isset($charge->balance_transaction)) {
+            try {
+                $balanceTxn = \Stripe\BalanceTransaction::retrieve($charge->balance_transaction);
+                $stripeFee = ($balanceTxn->fee ?? 0);
+                _sl_log('stripelite', "Fee from balance_txn: {$stripeFee}", 'Fee Debug');
+            } catch (Exception $e) {
+                _sl_log('stripelite', "Failed balance_txn: " . $e->getMessage(), 'Fee Debug');
+            }
+        }
+        
+        // Method 2: If balance_transaction failed, try application_fee_amount
+        if ($stripeFee === 0 && isset($charge->application_fee_amount)) {
+            $stripeFee = (int)$charge->application_fee_amount;
+            _sl_log('stripelite', "Fee from app_fee_amount: {$stripeFee}", 'Fee Debug');
+        }
+        
+        // Method 3: Calculate from amount - amount_captured
+        if ($stripeFee === 0) {
+            $chargeAmount = (int)($charge->amount ?? 0);
+            $amountCaptured = (int)($charge->amount_captured ?? 0);
+            $stripeFee = $chargeAmount - $amountCaptured;
+            if ($stripeFee > 0) {
+                _sl_log('stripelite', "Fee calculated: {$stripeFee}", 'Fee Debug');
+            }
+        }
+    }
 
     return [
         'success' => true,
         'transaction_id' => $paymentIntentId,
         'amount' => ($stripeAmount / 100.0),
         'currency' => $stripeCurrency,
+        'fee' => ($stripeFee / 100.0),  // Convert cents to dollars
         'invoice_id' => $invoice_id,
     ];
 }

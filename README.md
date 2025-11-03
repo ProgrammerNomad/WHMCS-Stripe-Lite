@@ -24,9 +24,10 @@ This reduces friction for customers who are hesitant to enter card details on ne
 - Matches the core functionality of the official Stripe gateway
 - Improves customer trust and conversions
 - Easy setup and configuration
-- Supports all currencies and payment methods provided by Stripe
+- **Multi-Currency Support**: Supports all 135+ Stripe-supported currencies (USD, EUR, GBP, INR, JPY, etc.)
 - **Dual Mode Support**: Test (Sandbox) and Production (Live) modes with separate API keys
 - **Manual Payment Verification**: Verifies payment status directly from Stripe API upon redirect
+- **Gateway Fee Capture**: Automatically captures and records Stripe processing fees on invoices
 - **Idempotent Transaction Handling**: Prevents duplicate invoice payments
 - **Webhook Fallback**: Automatic payment confirmation if customer doesn't redirect back to WHMCS
 
@@ -250,6 +251,15 @@ MIT License - See [LICENSE](LICENSE) file for details.
 ---
 
 ## Changelog
+
+### v1.0.3 (November 2025)
+
+- Added **multi-method fee extraction** for reliable Stripe processing fee capture
+- Enhanced webhook handlers to extract and record fees for both checkout.session.completed and payment_intent.succeeded events
+- Improved fee calculation with 3 fallback methods (BalanceTransaction, application_fee_amount, amount calculation)
+- Added debug logging for fee extraction troubleshooting
+- Created comprehensive multi-currency support documentation
+- Fee is now automatically recorded on invoices as "Gateway Fee" in WHMCS
 
 ### v1.0.2 (November 2025)
 

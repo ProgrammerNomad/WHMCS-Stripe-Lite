@@ -64,6 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'return') {
 
     $txId = $result['transaction_id'];
     $amount = $result['amount'];
+    $fee = $result['fee'] ?? 0;  // Stripe fee extracted from PaymentIntent
 
     // Duplicate check
     $exists = Capsule::table('tblaccounts')
@@ -78,10 +79,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'return') {
         exit;
     }
 
-    // Record payment
+    // Record payment (fee passed as 4th parameter for WHMCS to record)
     try {
-        addInvoicePayment($invoiceId, $txId, $amount, 0, 'stripelite');
-        _sl_log('return_success', "Invoice {$invoiceId} paid tx {$txId} amount {$amount}");
+        addInvoicePayment($invoiceId, $txId, $amount, $fee, 'stripelite');
+        _sl_log('return_success', "Invoice {$invoiceId} paid tx {$txId} amount {$amount} fee {$fee}");
         header('Location: ' . $systemUrl . "/viewinvoice.php?id={$invoiceId}&paymentsuccess=1");
         exit;
     } catch (Exception $e) {
@@ -138,11 +139,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($payload)) {
                 $pi = \Stripe\PaymentIntent::retrieve($paymentIntentId);
                 if ($pi->status === 'succeeded') {
                     $amount = ($pi->amount_received ?? $pi->amount ?? 0) / 100.0;
+                    
+                    // Extract fee from Stripe charge (using multiple methods for reliability)
+                    $stripeFee = 0;
+                    if ($pi->charges && $pi->charges->data && is_array($pi->charges->data) && count($pi->charges->data) > 0) {
+                        $charge = $pi->charges->data[0];
+                        
+                        // Method 1: Get fee from BalanceTransaction (most reliable)
+                        if (isset($charge->balance_transaction)) {
+                            try {
+                                $balanceTxn = \Stripe\BalanceTransaction::retrieve($charge->balance_transaction);
+                                $stripeFee = ($balanceTxn->fee ?? 0);
+                                _sl_log('webhook_fee_debug', "checkout: Fee from balance_txn: {$stripeFee}");
+                            } catch (Exception $e) {
+                                _sl_log('webhook_fee_debug', "checkout: balance_txn failed: " . $e->getMessage());
+                            }
+                        }
+                        
+                        // Method 2: Try application_fee_amount
+                        if ($stripeFee === 0 && isset($charge->application_fee_amount)) {
+                            $stripeFee = (int)$charge->application_fee_amount;
+                            _sl_log('webhook_fee_debug', "checkout: Fee from app_fee_amount: {$stripeFee}");
+                        }
+                        
+                        // Method 3: Calculate from amount fields
+                        if ($stripeFee === 0) {
+                            $chargeAmount = (int)($charge->amount ?? 0);
+                            $amountCaptured = (int)($charge->amount_captured ?? 0);
+                            $stripeFee = $chargeAmount - $amountCaptured;
+                            if ($stripeFee > 0) {
+                                _sl_log('webhook_fee_debug', "checkout: Fee calculated: {$stripeFee}");
+                            }
+                        }
+                    }
+                    
+                    $stripeFee = $stripeFee / 100.0;  // Convert to decimal
+                    
                     // Dup check
                     $exists = Capsule::table('tblaccounts')->where('invoiceid', $invoiceId)->where('transid', $paymentIntentId)->where('amountout', 0)->exists();
                     if (!$exists) {
-                        addInvoicePayment($invoiceId, $paymentIntentId, $amount, 0, 'stripelite');
-                        _sl_log('webhook_recorded', "Invoice {$invoiceId} tx {$paymentIntentId} amount {$amount}");
+                        addInvoicePayment($invoiceId, $paymentIntentId, $amount, $stripeFee, 'stripelite');
+                        _sl_log('webhook_recorded', "Invoice {$invoiceId} tx {$paymentIntentId} amount {$amount} fee {$stripeFee}");
                     } else {
                         _sl_log('webhook_duplicate', "Invoice {$invoiceId} tx {$paymentIntentId} already exists");
                     }
@@ -161,11 +198,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($payload)) {
             $invoiceId = isset($intent->metadata->invoice_id) ? (int)$intent->metadata->invoice_id : 0;
             if ($paymentIntentId && $invoiceId) {
                 $amount = ($intent->amount_received ?? $intent->amount ?? 0) / 100.0;
+                
+                // Extract fee from Stripe charge (using multiple methods for reliability)
+                $stripeFee = 0;
+                if ($intent->charges && $intent->charges->data && is_array($intent->charges->data) && count($intent->charges->data) > 0) {
+                    $charge = $intent->charges->data[0];
+                    
+                    // Method 1: Get fee from BalanceTransaction (most reliable)
+                    if (isset($charge->balance_transaction)) {
+                        try {
+                            $balanceTxn = \Stripe\BalanceTransaction::retrieve($charge->balance_transaction);
+                            $stripeFee = ($balanceTxn->fee ?? 0);
+                            _sl_log('webhook_fee_debug', "payment_intent: Fee from balance_txn: {$stripeFee}");
+                        } catch (Exception $e) {
+                            _sl_log('webhook_fee_debug', "payment_intent: balance_txn failed: " . $e->getMessage());
+                        }
+                    }
+                    
+                    // Method 2: Try application_fee_amount
+                    if ($stripeFee === 0 && isset($charge->application_fee_amount)) {
+                        $stripeFee = (int)$charge->application_fee_amount;
+                        _sl_log('webhook_fee_debug', "payment_intent: Fee from app_fee_amount: {$stripeFee}");
+                    }
+                    
+                    // Method 3: Calculate from amount fields
+                    if ($stripeFee === 0) {
+                        $chargeAmount = (int)($charge->amount ?? 0);
+                        $amountCaptured = (int)($charge->amount_captured ?? 0);
+                        $stripeFee = $chargeAmount - $amountCaptured;
+                        if ($stripeFee > 0) {
+                            _sl_log('webhook_fee_debug', "payment_intent: Fee calculated: {$stripeFee}");
+                        }
+                    }
+                }
+                
+                $stripeFee = $stripeFee / 100.0;  // Convert to decimal
+                
                 $exists = Capsule::table('tblaccounts')->where('invoiceid', $invoiceId)->where('transid', $paymentIntentId)->where('amountout', 0)->exists();
                 if (!$exists) {
                     try {
-                        addInvoicePayment($invoiceId, $paymentIntentId, $amount, 0, 'stripelite');
-                        _sl_log('webhook_payment_intent', "Recorded invoice {$invoiceId} tx {$paymentIntentId}");
+                        addInvoicePayment($invoiceId, $paymentIntentId, $amount, $stripeFee, 'stripelite');
+                        _sl_log('webhook_payment_intent', "Recorded invoice {$invoiceId} tx {$paymentIntentId} amount {$amount} fee {$stripeFee}");
                     } catch (Exception $e) {
                         _sl_log('webhook_pi_error', $e->getMessage());
                     }
