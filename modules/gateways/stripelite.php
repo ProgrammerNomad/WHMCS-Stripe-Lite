@@ -1,14 +1,9 @@
 <?php
 /**
- * WHMCS Stripe Lite Gateway Module
- * 
- * A lightweight, trust-focused Stripe payment gateway for WHMCS
- * Uses official Stripe PHP SDK for secure, robust payment processing
- * Redirects customers to Stripe Checkout for secure payments
- * 
- * @version 2.0.0
- * @author ProgrammerNomad
- * @link https://github.com/ProgrammerNomad/WHMCS-Stripe-Lite
+ * modules/gateways/stripelite.php
+ * WHMCS Stripe Lite Gateway Module (v2.0.1)
+ *
+ * Place composer vendor inside: modules/gateways/stripelite/vendor/
  */
 
 if (!defined("WHMCS")) {
@@ -18,246 +13,232 @@ if (!defined("WHMCS")) {
 use WHMCS\Database\Capsule;
 
 /**
- * Define module metadata
+ * Metadata
  */
 function stripelite_MetaData()
 {
-    return array(
+    return [
         'DisplayName' => 'Stripe Lite',
         'APIVersion' => '1.1',
         'DisableLocalCreditCardInput' => true,
         'TokenisedStorage' => false,
-    );
+    ];
 }
 
 /**
- * Configuration for Stripe Lite gateway
+ * Configuration
  */
 function stripelite_config()
 {
-    return array(
-        'FriendlyName' => array(
+    return [
+        'FriendlyName' => [
             'Type' => 'System',
             'Value' => 'Stripe Lite',
-        ),
-        'mode' => array(
+        ],
+        'mode' => [
             'FriendlyName' => 'Mode',
             'Type' => 'Dropdown',
-            'Options' => array(
-                'test' => 'Test Mode (Sandbox)',
-                'live' => 'Production Mode (Live)',
-            ),
+            'Options' => ['test' => 'Test Mode (Sandbox)', 'live' => 'Production Mode (Live)'],
             'Default' => 'test',
-            'Description' => 'Select Test mode to use sandbox credentials, or Production mode for live transactions.',
-        ),
-        'test_publishable_key' => array(
+            'Description' => 'Select Test or Live mode',
+        ],
+        'test_publishable_key' => [
             'FriendlyName' => 'Test Publishable Key',
             'Type' => 'Text',
             'Size' => '60',
-            'Default' => '',
-            'Description' => 'Enter your Stripe Test Publishable Key (starts with pk_test_)',
-        ),
-        'test_secret_key' => array(
+        ],
+        'test_secret_key' => [
             'FriendlyName' => 'Test Secret Key',
             'Type' => 'Password',
             'Size' => '60',
-            'Default' => '',
-            'Description' => 'Enter your Stripe Test Secret Key (starts with sk_test_). Keep this secure!',
-        ),
-        'live_publishable_key' => array(
+        ],
+        'live_publishable_key' => [
             'FriendlyName' => 'Production Publishable Key',
             'Type' => 'Text',
             'Size' => '60',
-            'Default' => '',
-            'Description' => 'Enter your Stripe Production Publishable Key (starts with pk_live_)',
-        ),
-        'live_secret_key' => array(
+        ],
+        'live_secret_key' => [
             'FriendlyName' => 'Production Secret Key',
             'Type' => 'Password',
             'Size' => '60',
-            'Default' => '',
-            'Description' => 'Enter your Stripe Production Secret Key (starts with sk_live_). Keep this secure!',
-        ),
-        'webhook_secret' => array(
+        ],
+        'webhook_secret' => [
             'FriendlyName' => 'Webhook Signing Secret',
             'Type' => 'Password',
             'Size' => '60',
-            'Default' => '',
-            'Description' => 'Enter your Webhook Signing Secret from Stripe Dashboard (starts with whsec_). Used for validating webhook events.',
-        ),
-    );
+            'Description' => 'Webhook signing secret (whsec_...) (recommended)',
+        ],
+    ];
 }
 
 /**
- * Payment form redirect - creates Stripe Checkout Session using SDK
+ * Gateway link - create Stripe Checkout Session and redirect
+ * Returns HTML if not redirecting (error)
  */
 function stripelite_link($params)
 {
+    // Load composer autoload inside module
+    $vendorAutoload = __DIR__ . '/stripelite/vendor/autoload.php';
+    if (!file_exists($vendorAutoload)) {
+        return renderError('Stripe SDK not installed. Run "composer require stripe/stripe-php" inside modules/gateways/stripelite.');
+    }
+    require_once $vendorAutoload;
+
+    // Fetch gateway settings
+    $mode = $params['mode'] ?? 'test';
+    $secretKey = ($mode === 'test') ? ($params['test_secret_key'] ?? '') : ($params['live_secret_key'] ?? '');
+    $systemUrl = rtrim($params['systemurl'], '/');
+
+    // Basic validation
+    if (empty($secretKey)) {
+        return renderError('Stripe secret key not configured for ' . htmlspecialchars($mode));
+    }
+
+    // Invoice / client details
+    $invoiceId = (int)($params['invoiceid'] ?? 0);
+    $amount = (float)($params['amount'] ?? 0.0);
+    $currency = strtoupper($params['currency'] ?? 'USD');
+    $clientEmail = $params['clientdetails']['email'] ?? null;
+    $clientId = $params['clientdetails']['userid'] ?? null;
+
+    if (!$invoiceId || !$amount || !$clientEmail) {
+        return renderError('Missing invoice, amount, or client email.');
+    }
+
+    // Initialize Stripe
+    \Stripe\Stripe::setApiKey($secretKey);
+
+    // Build URLs
+    $successUrl = $systemUrl . '/modules/gateways/callbacks/stripelite.php?action=return&invoice=' . $invoiceId . '&session_id={CHECKOUT_SESSION_ID}';
+    $cancelUrl = $systemUrl . '/cart.php?action=view';
+
+    // Create idempotency key
+    $idempotencyKey = 'whmcs_invoice_' . $invoiceId . '_' . time();
+
+    // Create session
     try {
-        // Load Stripe SDK
-        $stripeLibPath = __DIR__ . '/stripelite/vendor/autoload.php';
-        if (!file_exists($stripeLibPath)) {
-            throw new Exception('Stripe SDK not installed. Download SDK to: modules/gateways/stripelite/');
-        }
-        require_once $stripeLibPath;
-
-        // Extract gateway parameters
-        $mode = $params['mode'];
-        $secret_key = ($mode == 'test') 
-            ? $params['test_secret_key'] 
-            : $params['live_secret_key'];
-        
-        $invoice_id = $params['invoiceid'];
-        $amount = $params['amount'];
-        $currency = $params['currency'];
-        $client_id = $params['clientdetails']['userid'];
-        $client_email = $params['clientdetails']['email'];
-        
-        // Validate API keys
-        if (empty($secret_key)) {
-            return renderError('Stripe API keys not configured for ' . $mode . ' mode. Please contact support.');
-        }
-        
-        // Initialize Stripe SDK
-        \Stripe\Stripe::setApiKey($secret_key);
-
-        // Build return URLs
-        $system_url = rtrim($params['systemurl'], '/');
-        $success_url = $system_url . '/modules/gateways/callbacks/stripelite.php?action=return&invoice=' . $invoice_id . '&session_id={CHECKOUT_SESSION_ID}';
-        $cancel_url = $system_url . '/cart.php?action=view';
-
-        // Create idempotency key to prevent duplicate sessions
-        $idempotency_key = 'whmcs_invoice_' . $invoice_id;
-
-        // Create Checkout Session using Stripe SDK
         $session = \Stripe\Checkout\Session::create([
             'payment_method_types' => ['card'],
             'mode' => 'payment',
-            'success_url' => $success_url,
-            'cancel_url' => $cancel_url,
+            'success_url' => $successUrl,
+            'cancel_url' => $cancelUrl,
             'line_items' => [[
                 'price_data' => [
                     'currency' => strtolower($currency),
-                    'product_data' => [
-                        'name' => "WHMCS Invoice #{$invoice_id}",
-                    ],
-                    'unit_amount' => (int)round($amount * 100), // Convert to cents
+                    'product_data' => ['name' => "WHMCS Invoice #{$invoiceId}"],
+                    'unit_amount' => intval(round($amount * 100)),
                 ],
                 'quantity' => 1,
             ]],
-            'customer_email' => $client_email,
+            'customer_email' => $clientEmail,
             'metadata' => [
-                'invoice_id' => (string)$invoice_id,
-                'client_id' => (string)$client_id,
-                'whmcs_site' => $system_url,
+                'invoice_id' => (string)$invoiceId,
+                'client_id' => (string)$clientId,
+                'whmcs_site' => $systemUrl,
             ],
         ], [
-            'idempotency_key' => $idempotency_key,
+            'idempotency_key' => $idempotencyKey,
         ]);
-
-        // Store session mapping in database for reference
-        _storeStripeSession($invoice_id, $session->id, $amount, $currency);
-
-        // Log session creation
-        logTransaction('stripelite', 'Session ID: ' . $session->id, 'Checkout session created');
-
-        // Redirect to Stripe Checkout (HTTP 303 redirect instead of JavaScript)
-        header('Location: ' . $session->url, true, 303);
-        exit;
-
     } catch (\Stripe\Exception\ApiErrorException $e) {
         logTransaction('stripelite', $e->getMessage(), 'Stripe API Error');
-        return renderError('Payment error: ' . $e->getMessage());
+        return renderError('Payment gateway error. Please try again later.');
     } catch (Exception $e) {
-        logTransaction('stripelite', $e->getMessage(), 'Error creating checkout session');
-        return renderError('Error: ' . $e->getMessage());
+        logTransaction('stripelite', $e->getMessage(), 'General Error');
+        return renderError('Unexpected error. Please contact support.');
     }
+
+    // Store session in DB
+    _storeStripeSession($invoiceId, $session->id, $amount, $currency);
+
+    // Redirect to Stripe Checkout
+    header('Location: ' . $session->url, true, 303);
+    exit;
 }
 
 /**
- * Handle payment return from Stripe (manual validation)
- * This function is called from the callback handler
+ * Manual payment verification used by callbacks file
+ * Returns array with success, transaction_id, amount, currency, invoice_id
  */
 function stripelite_handleReturn($invoice_id, $session_id, $mode, $secret_key)
 {
-    // Load Stripe SDK
-    $stripeLibPath = __DIR__ . '/../../vendor/autoload.php';
-    if (file_exists($stripeLibPath)) {
-        require_once $stripeLibPath;
-        \Stripe\Stripe::setApiKey($secret_key);
-        
-        try {
-            // Retrieve Stripe session details to verify payment
-            $session = \Stripe\Checkout\Session::retrieve($session_id);
-            
-            if ($session->payment_status !== 'paid') {
-                logTransaction('stripelite', json_encode($session), 'Session not paid');
-                return array(
-                    'success' => false,
-                    'message' => 'Payment not completed',
-                );
-            }
-            
-            // Retrieve payment intent details
-            $payment_intent_id = $session->payment_intent;
-            if (empty($payment_intent_id)) {
-                logTransaction('stripelite', json_encode($session), 'No payment intent found');
-                return array(
-                    'success' => false,
-                    'message' => 'No payment intent found',
-                );
-            }
-            
-            // Fetch payment intent to get amount and confirm status
-            $intent = \Stripe\PaymentIntent::retrieve($payment_intent_id);
-            
-            if ($intent->status !== 'succeeded') {
-                logTransaction('stripelite', json_encode($intent), 'Payment intent not succeeded');
-                return array(
-                    'success' => false,
-                    'message' => 'Payment did not succeed',
-                );
-            }
-            
-            // Get amount (Stripe stores in cents)
-            $stripe_amount = $intent->amount;
-            $stripe_currency = strtoupper($intent->currency);
-            
-            // Log transaction for tracking
-            logTransaction('stripelite', json_encode($intent), 'Payment verified successfully');
-            
-            return array(
-                'success' => true,
-                'transaction_id' => $payment_intent_id,
-                'amount' => $stripe_amount / 100, // Convert back to dollars
-                'currency' => $stripe_currency,
-                'invoice_id' => $invoice_id,
-            );
-        } catch (\Stripe\Exception\ApiErrorException $e) {
-            logTransaction('stripelite', $e->getMessage(), 'Stripe API Error on return');
-            return array(
-                'success' => false,
-                'message' => 'Payment verification error: ' . $e->getMessage(),
-            );
-        }
+    // Load SDK
+    $vendorAutoload = __DIR__ . '/stripelite/vendor/autoload.php';
+    if (!file_exists($vendorAutoload)) {
+        return ['success' => false, 'message' => 'Stripe SDK not installed'];
     }
-    
-    return array(
-        'success' => false,
-        'message' => 'SDK not available',
-    );
+    require_once $vendorAutoload;
+
+    \Stripe\Stripe::setApiKey($secret_key);
+
+    try {
+        $session = \Stripe\Checkout\Session::retrieve($session_id);
+    } catch (\Stripe\Exception\ApiErrorException $e) {
+        logTransaction('stripelite', $e->getMessage(), 'Error retrieving session');
+        return ['success' => false, 'message' => 'Unable to verify payment session'];
+    }
+
+    if (($session->payment_status ?? '') !== 'paid') {
+        logTransaction('stripelite', json_encode($session), 'Session not paid');
+        return ['success' => false, 'message' => 'Payment not completed'];
+    }
+
+    $paymentIntentId = $session->payment_intent ?? null;
+    if (!$paymentIntentId) {
+        logTransaction('stripelite', json_encode($session), 'No payment intent');
+        return ['success' => false, 'message' => 'No payment intent found'];
+    }
+
+    try {
+        $intent = \Stripe\PaymentIntent::retrieve($paymentIntentId);
+    } catch (\Stripe\Exception\ApiErrorException $e) {
+        logTransaction('stripelite', $e->getMessage(), 'Error retrieving payment intent');
+        return ['success' => false, 'message' => 'Unable to verify payment intent'];
+    }
+
+    if (($intent->status ?? '') !== 'succeeded') {
+        logTransaction('stripelite', json_encode($intent), 'Payment intent not succeeded');
+        return ['success' => false, 'message' => 'Payment did not succeed'];
+    }
+
+    $stripeAmount = $intent->amount_received ?? $intent->amount ?? 0;
+    $stripeCurrency = strtoupper($intent->currency ?? '');
+
+    return [
+        'success' => true,
+        'transaction_id' => $paymentIntentId,
+        'amount' => ($stripeAmount / 100.0),
+        'currency' => $stripeCurrency,
+        'invoice_id' => $invoice_id,
+    ];
 }
 
 /**
- * Store Stripe session mapping in database (using Capsule)
+ * DB helpers
  */
+function _createSessionTable()
+{
+    try {
+        if (!Capsule::schema()->hasTable('mod_stripelite_sessions')) {
+            Capsule::schema()->create('mod_stripelite_sessions', function ($table) {
+                $table->increments('id');
+                $table->integer('invoiceid')->unsigned();
+                $table->string('session_id', 255)->unique();
+                $table->decimal('amount', 10, 2);
+                $table->string('currency', 8);
+                $table->timestamp('created_at')->useCurrent();
+                $table->index('invoiceid');
+                $table->index('session_id');
+            });
+        }
+    } catch (Exception $e) {
+        logTransaction('stripelite', $e->getMessage(), 'Error creating sessions table');
+    }
+}
+
 function _storeStripeSession($invoice_id, $session_id, $amount, $currency)
 {
     try {
-        // Ensure table exists
         _createSessionTable();
-
-        // Store in database
         Capsule::table('mod_stripelite_sessions')->insert([
             'invoiceid' => $invoice_id,
             'session_id' => $session_id,
@@ -266,60 +247,36 @@ function _storeStripeSession($invoice_id, $session_id, $amount, $currency)
             'created_at' => date('Y-m-d H:i:s'),
         ]);
     } catch (Exception $e) {
-        logTransaction('stripelite', $e->getMessage(), 'Error storing session in DB');
-        // Non-critical; session will work via Stripe API lookup
+        logTransaction('stripelite', $e->getMessage(), 'Error storing session');
     }
 }
 
 /**
- * Create mod_stripelite_sessions table if it doesn't exist (using Capsule)
- */
-function _createSessionTable()
-{
-    if (!Capsule::schema()->hasTable('mod_stripelite_sessions')) {
-        Capsule::schema()->create('mod_stripelite_sessions', function($table) {
-            $table->increments('id');
-            $table->integer('invoiceid')->unsigned();
-            $table->string('session_id', 255)->unique();
-            $table->decimal('amount', 10, 2);
-            $table->string('currency', 8);
-            $table->timestamp('created_at')->useCurrent();
-            $table->index('invoiceid');
-            $table->index('session_id');
-        });
-    }
-}
-
-/**
- * Check if transaction already exists (prevent duplicates using Capsule)
+ * Duplicate check using tblaccounts
  */
 function _transactionExists($invoice_id, $transaction_id)
 {
     try {
-        $result = Capsule::table('tblaccounts')
+        $exists = Capsule::table('tblaccounts')
             ->where('invoiceid', $invoice_id)
             ->where('transid', $transaction_id)
             ->where('amountout', 0)
-            ->first();
-        
-        return ($result !== null);
+            ->exists();
+        return $exists;
     } catch (Exception $e) {
-        logTransaction('stripelite', $e->getMessage(), 'Error checking transaction');
+        logTransaction('stripelite', $e->getMessage(), 'Error checking transaction exists');
         return false;
     }
 }
 
 /**
- * Check if invoice is already paid
+ * Invoice paid check
  */
 function _invoiceAlreadyPaid($invoice_id)
 {
     try {
-        $invoice = Capsule::table('tblinvoices')
-            ->where('id', $invoice_id)
-            ->first();
-        
-        return ($invoice && $invoice->status === 'Paid');
+        $invoice = Capsule::table('tblinvoices')->where('id', $invoice_id)->first();
+        return ($invoice && ($invoice->status === 'Paid'));
     } catch (Exception $e) {
         logTransaction('stripelite', $e->getMessage(), 'Error checking invoice status');
         return false;
@@ -327,33 +284,41 @@ function _invoiceAlreadyPaid($invoice_id)
 }
 
 /**
- * Render error message
+ * Render user-friendly error
  */
 function renderError($message)
 {
-    return '<div style="color:red; padding:15px; background:#ffe0e0; border:1px solid red; border-radius:4px; font-family:Arial, sans-serif;">'
+    return '<div style="color:red;padding:12px;background:#fff0f0;border:1px solid #ffcccc;border-radius:4px">'
         . '<strong>Payment Error:</strong> ' . htmlspecialchars($message)
         . '</div>';
 }
 
 /**
- * Log transaction for debugging
+ * Log wrapper (uses WHMCS logTransaction as well)
  */
-function logTransaction($gateway, $data, $action)
+function logTransaction($gateway, $data, $action = '')
 {
+    // Use WHMCS logTransaction if available
+    if (function_exists('logTransaction')) {
+        try {
+            \logTransaction($gateway, $data, $action);
+        } catch (Exception $e) {
+            // fallback to file
+        }
+    }
+
+    // File log fallback
     try {
-        $log_dir = ROOTDIR . '/logs';
+        $log_dir = defined('ROOTDIR') ? ROOTDIR . '/logs' : __DIR__ . '/logs';
         if (!is_dir($log_dir)) {
             @mkdir($log_dir, 0755, true);
         }
-
-        $log_file = $log_dir . '/stripe_lite.log';
+        $file = $log_dir . '/stripe_lite.log';
         $timestamp = date('Y-m-d H:i:s');
-        $log_message = "[{$timestamp}] [{$action}] " . substr($data, 0, 500) . "\n";
-        
-        @file_put_contents($log_file, $log_message, FILE_APPEND);
+        $entry = "[{$timestamp}] [{$action}] " . substr($data, 0, 1000) . PHP_EOL;
+        @file_put_contents($file, $entry, FILE_APPEND);
     } catch (Exception $e) {
-        // Silently fail logging to avoid breaking payment flow
+        // silent
     }
 }
 
