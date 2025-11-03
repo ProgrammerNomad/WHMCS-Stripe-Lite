@@ -10,6 +10,7 @@ if (!defined("WHMCS")) {
     die("This file cannot be accessed directly");
 }
 
+use WHMCS\Config\Setting;
 use WHMCS\Database\Capsule;
 
 /**
@@ -30,9 +31,15 @@ function stripelite_MetaData()
  */
 function stripelite_config()
 {
+    $systemUrl = rtrim((string) Setting::getValue('SystemURL'), '/');
+    if ($systemUrl === '') {
+        $systemUrl = 'https://yourdomain.com';
+    }
+    $webhookEndpoint = $systemUrl . '/modules/gateways/callback/stripelite.php';
+
     return [
         'FriendlyName' => [
-            'Type'  => 'system',
+            'Type'  => 'System',
             'Value' => 'Stripe Lite',
         ],
         'mode' => [
@@ -78,8 +85,8 @@ function stripelite_config()
             'Type'         => 'password',
             'Size'         => '80',
             'Default'      => '',
-            'Description'  => 'Optional: webhook signing secret from Stripe (whsec_...).',
-        ],
+            'Description'  => 'Optional: webhook signing secret from Stripe (whsec_...). <div class="alert alert-info top-margin-5 bottom-margin-5">Webhook Endpoint URL: <code>' . htmlspecialchars($webhookEndpoint, ENT_QUOTES, 'UTF-8') . '</code></div>',
+        ]
     ];
 }
 
