@@ -117,11 +117,49 @@ function stripelite_link($params)
     $invoiceId = (int)($params['invoiceid'] ?? 0);
     $amount = (float)($params['amount'] ?? 0.0);
     $currency = strtoupper($params['currency'] ?? 'USD');
-    $clientEmail = $params['clientdetails']['email'] ?? null;
-    $clientId = $params['clientdetails']['userid'] ?? null;
+    $clientDetails = $params['clientdetails'] ?? [];
+    $clientEmail = $clientDetails['email'] ?? null;
+    $clientId = $clientDetails['userid'] ?? null;
+    $clientName = trim(($clientDetails['firstname'] ?? '') . ' ' . ($clientDetails['lastname'] ?? ''));
+    if ($clientName === '') {
+        $clientName = $clientDetails['companyname'] ?? '';
+    }
+
+    $addressLine1 = $clientDetails['address1'] ?? '';
+    $addressCity = $clientDetails['city'] ?? '';
+    $addressCountry = $clientDetails['country'] ?? '';
+    $addressPostcode = $clientDetails['postcode'] ?? '';
 
     if (!$invoiceId || !$amount || !$clientEmail) {
         return renderError('Missing invoice, amount, or client email.');
+    }
+
+    if ($clientName === '' || $addressLine1 === '' || $addressCity === '' || $addressCountry === '' || $addressPostcode === '') {
+        return renderError('Customer profile is missing required name or address details. Please update billing information.');
+    }
+
+    $addressPayload = array_filter([
+        'line1'       => $addressLine1,
+        'line2'       => $clientDetails['address2'] ?? '',
+        'city'        => $addressCity,
+        'state'       => $clientDetails['state'] ?? '',
+        'postal_code' => $addressPostcode,
+        'country'     => $addressCountry,
+    ], static function ($value) {
+        return $value !== null && $value !== '';
+    });
+
+    $customerDetails = [
+        'name'  => $clientName,
+        'email' => $clientEmail,
+    ];
+
+    if (!empty($addressPayload)) {
+        $customerDetails['address'] = $addressPayload;
+    }
+
+    if (!empty($clientDetails['phonenumber'])) {
+        $customerDetails['phone'] = $clientDetails['phonenumber'];
     }
 
     // Initialize Stripe
@@ -150,6 +188,8 @@ function stripelite_link($params)
                 'quantity' => 1,
             ]],
             'customer_email' => $clientEmail,
+            'customer_details' => $customerDetails,
+            'billing_address_collection' => 'required',
             'metadata' => [
                 'invoice_id' => (string)$invoiceId,
                 'client_id' => (string)$clientId,
