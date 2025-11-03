@@ -38,35 +38,32 @@ function stripelite_config()
         'mode' => [
             'FriendlyName' => 'Mode',
             'Type' => 'Dropdown',
-            'Options' => ['test' => 'Test Mode (Sandbox)', 'live' => 'Production Mode (Live)'],
+            'Options' => [
+                'test' => 'Test Mode (Sandbox)',
+                'live' => 'Production Mode (Live)',
+            ],
             'Default' => 'test',
-            'Description' => 'Select Test or Live mode',
         ],
         'test_publishable_key' => [
             'FriendlyName' => 'Test Publishable Key',
             'Type' => 'Text',
-            'Size' => '60',
         ],
         'test_secret_key' => [
             'FriendlyName' => 'Test Secret Key',
             'Type' => 'Password',
-            'Size' => '60',
         ],
         'live_publishable_key' => [
             'FriendlyName' => 'Production Publishable Key',
             'Type' => 'Text',
-            'Size' => '60',
         ],
         'live_secret_key' => [
             'FriendlyName' => 'Production Secret Key',
             'Type' => 'Password',
-            'Size' => '60',
         ],
         'webhook_secret' => [
             'FriendlyName' => 'Webhook Signing Secret',
             'Type' => 'Password',
-            'Size' => '60',
-            'Description' => 'Webhook signing secret (whsec_...) (recommended)',
+            'Description' => 'Optional: Webhook signing secret from Stripe Dashboard (whsec_...)',
         ],
     ];
 }
